@@ -17,6 +17,18 @@ function App() {
     role: "Employee",
   });
 
+  const [leaves, setLeaves] = useState([]);
+  const [roster, setRoster] = useState(null);
+  const [rosterMonth, setRosterMonth] = useState(new Date().getMonth() + 1);
+  const [rosterYear, setRosterYear] = useState(new Date().getFullYear());
+
+  const [leaveForm, setLeaveForm] = useState({
+    employee: "",
+    startDate: "",
+    endDate: "",
+    reason: "",
+  });
+
   const [teams, setTeams] = useState([]);
 
   const [teamForm, setTeamForm] = useState({
@@ -44,6 +56,82 @@ function App() {
       setTeams(response.data);
     } catch (error) {
       console.log("Error fetching teams:", error);
+    }
+  };
+
+  const fetchLeaves = async () => {
+    try {
+      const response = await axios.get("http://localhost:5000/api/leaves");
+      setLeaves(response.data);
+    } catch (error) {
+      console.log("Error fetching leaves:", error);
+    }
+  };
+
+  const addLeave = async (e) => {
+    e.preventDefault();
+
+    try {
+      await axios.post("http://localhost:5000/api/leaves", leaveForm);
+
+      setLeaveForm({
+        employee: "",
+        startDate: "",
+        endDate: "",
+        reason: "",
+      });
+
+      fetchLeaves();
+      alert("Leave request submitted successfully!");
+    } catch (error) {
+      alert(error.response?.data?.message || "Error submitting leave");
+    }
+  };
+
+  const updateLeaveStatus = async (id, status) => {
+    try {
+      await axios.put(`http://localhost:5000/api/leaves/${id}`, { status });
+      fetchLeaves();
+    } catch (error) {
+      alert("Unable to update leave status");
+    }
+  };
+
+  const deleteLeave = async (id) => {
+    try {
+      await axios.delete(`http://localhost:5000/api/leaves/${id}`);
+      fetchLeaves();
+    } catch (error) {
+      alert("Unable to delete leave");
+    }
+  };
+
+  const generateRoster = async () => {
+    try {
+      const response = await axios.post(
+        "http://localhost:5000/api/rosters/generate",
+        {
+          month: Number(rosterMonth),
+          year: Number(rosterYear),
+        },
+      );
+
+      setRoster(response.data.roster);
+      alert("Monthly roster generated successfully!");
+    } catch (error) {
+      alert(error.response?.data?.message || "Roster generation failed");
+    }
+  };
+
+  const fetchRoster = async () => {
+    try {
+      const response = await axios.get(
+        `http://localhost:5000/api/rosters?month=${rosterMonth}&year=${rosterYear}`,
+      );
+
+      setRoster(response.data);
+    } catch (error) {
+      console.log(error);
     }
   };
 
@@ -84,8 +172,8 @@ function App() {
   useEffect(() => {
     fetchEmployees();
     fetchTeams();
+    fetchLeaves();
   }, []);
-
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
@@ -221,6 +309,119 @@ function App() {
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="team-section">
+        <h2>Leave Management</h2>
+
+        <form onSubmit={addLeave} className="employee-form">
+          <select
+            value={leaveForm.employee}
+            onChange={(e) =>
+              setLeaveForm({ ...leaveForm, employee: e.target.value })
+            }
+            required
+          >
+            <option value="">Select Employee</option>
+            {employees.map((emp) => (
+              <option key={emp._id} value={emp._id}>
+                {emp.name} - {emp.employeeId}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="date"
+            value={leaveForm.startDate}
+            onChange={(e) =>
+              setLeaveForm({ ...leaveForm, startDate: e.target.value })
+            }
+            required
+          />
+
+          <input
+            type="date"
+            value={leaveForm.endDate}
+            onChange={(e) =>
+              setLeaveForm({ ...leaveForm, endDate: e.target.value })
+            }
+            required
+          />
+
+          <input
+            placeholder="Leave Reason"
+            value={leaveForm.reason}
+            onChange={(e) =>
+              setLeaveForm({ ...leaveForm, reason: e.target.value })
+            }
+            required
+          />
+
+          <button type="submit">Apply Leave</button>
+        </form>
+
+        <h3>All Leave Requests</h3>
+
+        {leaves.map((leave) => (
+          <div key={leave._id} className="team-card">
+            <h4>{leave.employee?.name || "Employee"}</h4>
+            <p>Start: {new Date(leave.startDate).toLocaleDateString()}</p>
+            <p>End: {new Date(leave.endDate).toLocaleDateString()}</p>
+            <p>Reason: {leave.reason}</p>
+            <p>Status: {leave.status}</p>
+
+            <button onClick={() => updateLeaveStatus(leave._id, "Approved")}>
+              Approve
+            </button>
+
+            <button onClick={() => updateLeaveStatus(leave._id, "Rejected")}>
+              Reject
+            </button>
+
+            <button onClick={() => deleteLeave(leave._id)}>Delete</button>
+          </div>
+        ))}
+      </div>
+
+      <div className="team-section">
+        <h2>Monthly Roster Management</h2>
+
+        <input
+          type="number"
+          min="1"
+          max="12"
+          value={rosterMonth}
+          onChange={(e) => setRosterMonth(e.target.value)}
+          placeholder="Month (1-12)"
+        />
+
+        <input
+          type="number"
+          value={rosterYear}
+          onChange={(e) => setRosterYear(e.target.value)}
+          placeholder="Year"
+        />
+
+        <button onClick={generateRoster}>Generate Monthly Roster</button>
+
+        {roster?.assignments?.length > 0 && (
+          <div>
+            <h3>Generated Roster</h3>
+
+            {roster.assignments.map((item, index) => (
+              <div className="team-card" key={index}>
+                <p>
+                  Employee:{" "}
+                  {item.employee?.name ||
+                    employees.find((emp) => emp._id === item.employee)?.name ||
+                    "Employee"}
+                </p>
+                <p>Date: {new Date(item.date).toLocaleDateString()}</p>
+                <p>Shift: {item.shift}</p>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <main>
