@@ -52,7 +52,7 @@ function App() {
 
   const fetchTeams = async () => {
     try {
-      const response = await axios.get("http://localhost:5000/api/teams");
+      const response = await axios.get("https://datastaw-roster.onrender.com/api/teams");
       setTeams(response.data);
     } catch (error) {
       console.log("Error fetching teams:", error);
@@ -61,7 +61,7 @@ function App() {
 
   const fetchLeaves = async () => {
     try {
-      const response = await axios.get("http://localhost:5000/api/leaves");
+      const response = await axios.get("https://datastaw-roster.onrender.com/api/leaves");
       setLeaves(response.data);
     } catch (error) {
       console.log("Error fetching leaves:", error);
@@ -72,7 +72,7 @@ function App() {
     e.preventDefault();
 
     try {
-      await axios.post("http://localhost:5000/api/leaves", leaveForm);
+      await axios.post("https://datastaw-roster.onrender.com/api/leaves", leaveForm);
 
       setLeaveForm({
         employee: "",
@@ -90,7 +90,7 @@ function App() {
 
   const updateLeaveStatus = async (id, status) => {
     try {
-      await axios.put(`http://localhost:5000/api/leaves/${id}`, { status });
+      await axios.put(`https://datastaw-roster.onrender.com/api/leaves/${id}`, { status });
       fetchLeaves();
     } catch (error) {
       alert("Unable to update leave status");
@@ -99,7 +99,7 @@ function App() {
 
   const deleteLeave = async (id) => {
     try {
-      await axios.delete(`http://localhost:5000/api/leaves/${id}`);
+      await axios.delete(`https://datastaw-roster.onrender.com/api/leaves/${id}`);
       fetchLeaves();
     } catch (error) {
       alert("Unable to delete leave");
@@ -109,7 +109,7 @@ function App() {
   const generateRoster = async () => {
     try {
       const response = await axios.post(
-        "http://localhost:5000/api/rosters/generate",
+        "https://datastaw-roster.onrender.com/api/rosters/generate",
         {
           month: Number(rosterMonth),
           year: Number(rosterYear),
@@ -126,7 +126,7 @@ function App() {
   const fetchRoster = async () => {
     try {
       const response = await axios.get(
-        `http://localhost:5000/api/rosters?month=${rosterMonth}&year=${rosterYear}`,
+        `https://datastaw-roster.onrender.com/api/rosters?month=${rosterMonth}&year=${rosterYear}`,
       );
 
       setRoster(response.data);
@@ -139,7 +139,7 @@ function App() {
     e.preventDefault();
 
     try {
-      await axios.post("http://localhost:5000/api/teams", teamForm);
+      await axios.post("https://datastaw-roster.onrender.com/api/teams", teamForm);
 
       setTeamForm({
         teamName: "",
@@ -161,7 +161,7 @@ function App() {
     }
 
     try {
-      await axios.delete(`http://localhost:5000/api/teams/${id}`);
+      await axios.delete(`https://datastaw-roster.onrender.com/api/teams/${id}`);
       fetchTeams();
       alert("Team deleted successfully!");
     } catch (error) {
