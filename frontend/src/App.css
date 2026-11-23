@@ -45,7 +45,6 @@ select {
   outline-offset: 2px;
 }
 
-/* Layout */
 .shell {
   display: grid;
   grid-template-columns: 232px 1fr;
@@ -134,7 +133,6 @@ nav {
   color: var(--muted);
 }
 
-/* Panels */
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -161,7 +159,6 @@ nav {
   align-items: flex-end;
 }
 
-/* Stats */
 .stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -188,7 +185,6 @@ nav {
   color: var(--warn);
 }
 
-/* Forms */
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -235,7 +231,6 @@ select:focus {
   gap: 10px;
 }
 
-/* Buttons */
 .btn {
   background: var(--accent);
   color: #fff;
@@ -276,7 +271,6 @@ select:focus {
   filter: none;
 }
 
-/* Table */
 .table-wrap {
   overflow-x: auto;
 }
@@ -331,7 +325,6 @@ small {
   font-size: 13px;
 }
 
-/* Rows */
 .row {
   display: flex;
   align-items: center;
@@ -348,7 +341,6 @@ small {
   min-width: 180px;
 }
 
-/* Badges / chips */
 .badge {
   font-size: 12px;
   font-weight: 700;
@@ -391,7 +383,6 @@ small {
   border-color: var(--ink);
 }
 
-/* Team cards */
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
@@ -422,7 +413,6 @@ small {
   font-weight: 600;
 }
 
-/* Roster grid */
 .grid th,
 .grid td {
   text-align: center;
@@ -481,7 +471,6 @@ small {
   flex-wrap: wrap;
 }
 
-/* Empty + toast */
 .empty {
   text-align: center;
   padding: 32px 12px;
@@ -509,7 +498,6 @@ small {
   border-left-color: #ff6b5e;
 }
 
-/* Mobile */
 @media (max-width: 800px) {
   .shell {
     grid-template-columns: 1fr;
@@ -539,5 +527,99 @@ small {
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+  }
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.shell {
+  width: 100%;
+  min-height: 100vh;
+  grid-template-columns: 232px minmax(0, 1fr);
+}
+
+.content {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 32px 36px 56px;
+}
+
+.panel,
+.stats,
+.toolbar,
+.cards {
+  min-width: 0;
+}
+
+.table-wrap {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+}
+
+.grid {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.grid th,
+.grid td {
+  white-space: nowrap;
+}
+
+.grid .sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fff;
+}
+
+.grid thead .sticky {
+  z-index: 3;
+}
+
+@media (min-width: 801px) {
+  .content {
+    padding-left: 36px;
+    padding-right: 36px;
+  }
+}
+
+@media (max-width: 800px) {
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .content {
+    width: 100%;
+    padding: 20px 16px 48px;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+
+  .inline {
+    flex-wrap: wrap;
+  }
+
+  .inline input {
+    width: 100%;
   }
 }
