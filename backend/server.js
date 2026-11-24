@@ -1,4 +1,3 @@
-
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -30,6 +29,8 @@ const DAYS = [
 
 const SHIFTS = ["Morning", "Evening", "Night"];
 
+const TZ_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
 const dateKey = (value) => {
   const date = new Date(value);
 
@@ -39,6 +40,9 @@ const dateKey = (value) => {
     String(date.getUTCDate()).padStart(2, "0"),
   ].join("-");
 };
+
+const localDateKey = (value) =>
+  dateKey(new Date(new Date(value).getTime() + TZ_OFFSET_MS));
 
 const makeDate = (year, month, day) =>
   new Date(Date.UTC(year, month - 1, day));
@@ -62,8 +66,8 @@ const isOnLeave = (emp, date, leaves) => {
   return leaves.some(
     (leave) =>
       leave.employee.toString() === emp._id.toString() &&
-      key >= dateKey(leave.startDate) &&
-      key <= dateKey(leave.endDate)
+      key >= localDateKey(leave.startDate) &&
+      key <= localDateKey(leave.endDate)
   );
 };
 
@@ -88,13 +92,20 @@ const isEmployeeHoliday = (emp, dayHolidays) => {
   const brands = employeeBrands(emp);
   const processes = employeeProcesses(emp);
 
-  return dayHolidays.some((holiday) =>
-    brands.some((brand) =>
-      processes.some((process) =>
+  return dayHolidays.some((holiday) => {
+    if (holiday.appliesTo === "All") return true;
+
+    if (!brands.length && !processes.length) return false;
+
+    const brandList = brands.length ? brands : [""];
+    const processList = processes.length ? processes : [""];
+
+    return brandList.some((brand) =>
+      processList.some((process) =>
         isHolidayFor(holiday, brand, process)
       )
-    )
-  );
+    );
+  });
 };
 
 const sendError = (res, error, status = 400) =>
@@ -483,17 +494,17 @@ async function buildRoster(month, year) {
     const dayName = DAYS[date.getUTCDay()];
     const key = dateKey(date);
 
-   const dayHolidays = holidays.filter((holiday) => {
-  const holidayDate = new Date(holiday.date);
+    const dayHolidays = holidays.filter(
+      (holiday) => localDateKey(holiday.date) === key
+    );
 
-  return (
-    holidayDate.getUTCFullYear() === year &&
-    holidayDate.getUTCMonth() + 1 === month &&
-    holidayDate.getUTCDate() === day
-  );
-});    const unavailable = new Set();
+    const unavailable = new Set();
+    let shiftCounter = 0;
 
     for (const emp of employees) {
+      const empBrand = employeeBrands(emp)[0] || "";
+      const empProcess = employeeProcesses(emp)[0] || "";
+
       if (isOnLeave(emp, date, leaves)) {
         unavailable.add(emp._id.toString());
 
@@ -501,9 +512,25 @@ async function buildRoster(month, year) {
           emp,
           date,
           "Leave",
-          emp.brand,
-          emp.process,
+          empBrand,
+          empProcess,
           "Approved leave"
+        );
+      } else if (isEmployeeHoliday(emp, dayHolidays)) {
+        unavailable.add(emp._id.toString());
+
+        const names = dayHolidays
+          .map((holiday) => holiday.name || holiday.title || "")
+          .filter(Boolean)
+          .join(", ");
+
+        addAssignment(
+          emp,
+          date,
+          "Public Holiday",
+          empBrand,
+          empProcess,
+          names ? `Public holiday: ${names}` : "Public holiday"
         );
       } else if (employeeWeeklyOffs(emp).includes(dayName)) {
         unavailable.add(emp._id.toString());
@@ -512,20 +539,9 @@ async function buildRoster(month, year) {
           emp,
           date,
           "Weekly Off",
-          emp.brand,
-          emp.process,
+          empBrand,
+          empProcess,
           "Configured weekly off"
-        );
-      } else if (isEmployeeHoliday(emp, dayHolidays)) {
-        unavailable.add(emp._id.toString());
-
-        addAssignment(
-          emp,
-          date,
-          "Public Holiday",
-          emp.brand,
-          emp.process,
-          "Public holiday"
         );
       }
     }
@@ -555,6 +571,8 @@ async function buildRoster(month, year) {
             (usageCount.get(b._id.toString()) || 0)
         );
 
+      const allowedShifts = rule.shifts?.length ? rule.shifts : SHIFTS;
+
       let allocated = 0;
 
       for (
@@ -563,14 +581,13 @@ async function buildRoster(month, year) {
         i++
       ) {
         const emp = eligible[i];
-        const allowedShifts = rule.shifts?.length
-          ? rule.shifts
-          : SHIFTS;
 
-        const shift = allowedShifts[day % allowedShifts.length];
+        const shift =
+          allowedShifts[(day + shiftCounter) % allowedShifts.length];
 
         if (addAssignment(emp, date, shift, rule.brand, rule.process)) {
           allocated++;
+          shiftCounter++;
         }
       }
 
@@ -581,14 +598,12 @@ async function buildRoster(month, year) {
           brand: rule.brand,
           process: rule.process,
           severity: "Critical",
-          message:
-            `Required ${rule.minimumStaff} staff for ${rule.brand} / ${rule.process}, but only ${allocated} could be allocated.`,
+          message: `Required ${rule.minimumStaff} staff for ${rule.brand} / ${rule.process}, but only ${allocated} could be allocated.`,
         });
       }
     }
 
-    for (let i = 0; i < employees.length; i++) {
-      const emp = employees[i];
+    for (const emp of employees) {
       const empId = emp._id.toString();
 
       if (unavailable.has(empId)) continue;
@@ -598,16 +613,20 @@ async function buildRoster(month, year) {
         ? emp.shiftPreferences
         : SHIFTS;
 
-      const shift = preferences[day % preferences.length];
+      const shift = preferences[(day + shiftCounter) % preferences.length];
 
-      addAssignment(
-        emp,
-        date,
-        shift,
-        emp.brand,
-        emp.process,
-        "General allocation"
-      );
+      if (
+        addAssignment(
+          emp,
+          date,
+          shift,
+          employeeBrands(emp)[0] || "",
+          employeeProcesses(emp)[0] || "",
+          "General allocation"
+        )
+      ) {
+        shiftCounter++;
+      }
     }
   }
 
@@ -682,8 +701,9 @@ app.get("/api/rosters", async (req, res) => {
       });
     }
 
-    const roster = await Roster.findOne({ month, year })
-      .populate("assignments.employee");
+    const roster = await Roster.findOne({ month, year }).populate(
+      "assignments.employee"
+    );
 
     res.json(roster || {});
   } catch (error) {
@@ -746,8 +766,9 @@ app.put(
 
       await roster.save();
 
-      const updated = await Roster.findById(roster._id)
-        .populate("assignments.employee");
+      const updated = await Roster.findById(roster._id).populate(
+        "assignments.employee"
+      );
 
       res.json({
         message: "Roster assignment updated",
@@ -781,7 +802,7 @@ app.get("/api/rosters/backup-suggestions", async (req, res) => {
     const holidays = await Holiday.find();
 
     const dayHolidays = holidays.filter(
-      (holiday) => dateKey(holiday.date) === date
+      (holiday) => localDateKey(holiday.date) === date
     );
 
     const holidayApplies = dayHolidays.some((holiday) =>
@@ -796,12 +817,7 @@ app.get("/api/rosters/backup-suggestions", async (req, res) => {
           const onLeave = isOnLeave(emp, targetDate, leaves);
           const employeeHoliday = isEmployeeHoliday(emp, dayHolidays);
 
-          return (
-            eligible &&
-            !weeklyOff &&
-            !onLeave &&
-            !employeeHoliday
-          );
+          return eligible && !weeklyOff && !onLeave && !employeeHoliday;
         });
 
     res.json({
