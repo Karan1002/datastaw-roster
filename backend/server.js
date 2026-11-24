@@ -1,3 +1,4 @@
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -17,8 +18,6 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "2mb" }));
 
-// -------------------- HELPERS --------------------
-
 const DAYS = [
   "Sunday",
   "Monday",
@@ -33,6 +32,7 @@ const SHIFTS = ["Morning", "Evening", "Night"];
 
 const dateKey = (value) => {
   const date = new Date(value);
+
   return [
     date.getUTCFullYear(),
     String(date.getUTCMonth() + 1).padStart(2, "0"),
@@ -44,10 +44,10 @@ const makeDate = (year, month, day) =>
   new Date(Date.UTC(year, month - 1, day));
 
 const employeeBrands = (emp) =>
-  emp.brands?.length ? emp.brands : [emp.brand];
+  emp.brands?.length ? emp.brands : emp.brand ? [emp.brand] : [];
 
 const employeeProcesses = (emp) =>
-  emp.processes?.length ? emp.processes : [emp.process];
+  emp.processes?.length ? emp.processes : emp.process ? [emp.process] : [];
 
 const employeeWeeklyOffs = (emp) =>
   emp.weeklyOffs?.length ? emp.weeklyOffs : ["Sunday"];
@@ -84,10 +84,21 @@ const isHolidayFor = (holiday, brand, process) => {
   return false;
 };
 
+const isEmployeeHoliday = (emp, dayHolidays) => {
+  const brands = employeeBrands(emp);
+  const processes = employeeProcesses(emp);
+
+  return dayHolidays.some((holiday) =>
+    brands.some((brand) =>
+      processes.some((process) =>
+        isHolidayFor(holiday, brand, process)
+      )
+    )
+  );
+};
+
 const sendError = (res, error, status = 400) =>
   res.status(status).json({ message: error.message });
-
-// -------------------- HOME --------------------
 
 app.get("/", (req, res) => {
   res.send("DataStraw Smart Roster API is running!");
@@ -96,11 +107,12 @@ app.get("/", (req, res) => {
 app.get("/api/health", (req, res) => {
   res.json({
     status: "OK",
-    database: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    database:
+      mongoose.connection.readyState === 1
+        ? "Connected"
+        : "Disconnected",
   });
 });
-
-// -------------------- EMPLOYEES --------------------
 
 app.post("/api/employees", async (req, res) => {
   try {
@@ -174,7 +186,6 @@ app.delete("/api/employees/:id", async (req, res) => {
   }
 });
 
-
 app.post("/api/employees/set-default-weekly-off", async (req, res) => {
   try {
     const result = await Employee.updateMany(
@@ -198,8 +209,6 @@ app.post("/api/employees/set-default-weekly-off", async (req, res) => {
     sendError(res, error, 500);
   }
 });
-
-
 
 app.post("/api/teams", async (req, res) => {
   try {
@@ -258,8 +267,6 @@ app.delete("/api/teams/:id", async (req, res) => {
   }
 });
 
-// -------------------- LEAVES --------------------
-
 app.post("/api/leaves", async (req, res) => {
   try {
     if (new Date(req.body.endDate) < new Date(req.body.startDate)) {
@@ -310,7 +317,8 @@ app.put("/api/leaves/:id", async (req, res) => {
     }
 
     res.json({
-      message: "Leave status updated successfully. Regenerate or revalidate the roster.",
+      message:
+        "Leave status updated successfully. Regenerate or revalidate the roster.",
       leave,
     });
   } catch (error) {
@@ -331,8 +339,6 @@ app.delete("/api/leaves/:id", async (req, res) => {
     sendError(res, error);
   }
 });
-
-
 
 app.post("/api/holidays", async (req, res) => {
   try {
@@ -369,8 +375,6 @@ app.delete("/api/holidays/:id", async (req, res) => {
     sendError(res, error);
   }
 });
-
-
 
 app.post("/api/roster-rules", async (req, res) => {
   try {
@@ -424,7 +428,6 @@ app.delete("/api/roster-rules/:id", async (req, res) => {
   }
 });
 
-
 async function buildRoster(month, year) {
   const employees = await Employee.find({ status: "Active" });
   const leaves = await Leave.find({ status: "Approved" });
@@ -443,7 +446,14 @@ async function buildRoster(month, year) {
   const assignedByDate = new Map();
   const usageCount = new Map();
 
-  const addAssignment = (emp, date, shift, brand = "", process = "", notes = "") => {
+  const addAssignment = (
+    emp,
+    date,
+    shift,
+    brand = "",
+    process = "",
+    notes = ""
+  ) => {
     const key = `${dateKey(date)}_${emp._id}`;
 
     if (assignedByDate.has(key)) return false;
@@ -473,11 +483,15 @@ async function buildRoster(month, year) {
     const dayName = DAYS[date.getUTCDay()];
     const key = dateKey(date);
 
-    const dayHolidays = holidays.filter(
-      (holiday) => dateKey(holiday.date) === key
-    );
+   const dayHolidays = holidays.filter((holiday) => {
+  const holidayDate = new Date(holiday.date);
 
-    const unavailable = new Set();
+  return (
+    holidayDate.getUTCFullYear() === year &&
+    holidayDate.getUTCMonth() + 1 === month &&
+    holidayDate.getUTCDate() === day
+  );
+});    const unavailable = new Set();
 
     for (const emp of employees) {
       if (isOnLeave(emp, date, leaves)) {
@@ -501,6 +515,17 @@ async function buildRoster(month, year) {
           emp.brand,
           emp.process,
           "Configured weekly off"
+        );
+      } else if (isEmployeeHoliday(emp, dayHolidays)) {
+        unavailable.add(emp._id.toString());
+
+        addAssignment(
+          emp,
+          date,
+          "Public Holiday",
+          emp.brand,
+          emp.process,
+          "Public holiday"
         );
       }
     }
@@ -532,9 +557,16 @@ async function buildRoster(month, year) {
 
       let allocated = 0;
 
-      for (let i = 0; i < eligible.length && allocated < rule.minimumStaff; i++) {
+      for (
+        let i = 0;
+        i < eligible.length && allocated < rule.minimumStaff;
+        i++
+      ) {
         const emp = eligible[i];
-        const allowedShifts = rule.shifts?.length ? rule.shifts : SHIFTS;
+        const allowedShifts = rule.shifts?.length
+          ? rule.shifts
+          : SHIFTS;
+
         const shift = allowedShifts[day % allowedShifts.length];
 
         if (addAssignment(emp, date, shift, rule.brand, rule.process)) {
@@ -639,8 +671,6 @@ app.post("/api/rosters/generate", async (req, res) => {
   }
 });
 
-
-
 app.get("/api/rosters", async (req, res) => {
   try {
     const month = Number(req.query.month);
@@ -661,73 +691,73 @@ app.get("/api/rosters", async (req, res) => {
   }
 });
 
+app.put(
+  "/api/rosters/:rosterId/assignments/:assignmentId",
+  async (req, res) => {
+    try {
+      const { employee, shift, brand, process, notes } = req.body;
 
+      const roster = await Roster.findById(req.params.rosterId);
 
-app.put("/api/rosters/:rosterId/assignments/:assignmentId", async (req, res) => {
-  try {
-    const { employee, shift, brand, process, notes } = req.body;
-
-    const roster = await Roster.findById(req.params.rosterId);
-
-    if (!roster) {
-      return res.status(404).json({ message: "Roster not found" });
-    }
-
-    const assignment = roster.assignments.id(req.params.assignmentId);
-
-    if (!assignment) {
-      return res.status(404).json({ message: "Assignment not found" });
-    }
-
-    if (employee) {
-      const selectedEmployee = await Employee.findOne({
-        _id: employee,
-        status: "Active",
-      });
-
-      if (!selectedEmployee) {
-        return res.status(400).json({
-          message: "Selected employee is not active or does not exist",
-        });
+      if (!roster) {
+        return res.status(404).json({ message: "Roster not found" });
       }
 
-      assignment.employee = selectedEmployee._id;
+      const assignment = roster.assignments.id(req.params.assignmentId);
+
+      if (!assignment) {
+        return res.status(404).json({ message: "Assignment not found" });
+      }
+
+      if (employee) {
+        const selectedEmployee = await Employee.findOne({
+          _id: employee,
+          status: "Active",
+        });
+
+        if (!selectedEmployee) {
+          return res.status(400).json({
+            message: "Selected employee is not active or does not exist",
+          });
+        }
+
+        assignment.employee = selectedEmployee._id;
+      }
+
+      const allowedShifts = [
+        "Morning",
+        "Evening",
+        "Night",
+        "Weekly Off",
+        "Public Holiday",
+        "Leave",
+      ];
+
+      if (shift && !allowedShifts.includes(shift)) {
+        return res.status(400).json({ message: "Invalid shift" });
+      }
+
+      if (shift) assignment.shift = shift;
+      if (brand !== undefined) assignment.brand = brand;
+      if (process !== undefined) assignment.process = process;
+      if (notes !== undefined) assignment.notes = notes;
+
+      assignment.manuallyEdited = true;
+
+      await roster.save();
+
+      const updated = await Roster.findById(roster._id)
+        .populate("assignments.employee");
+
+      res.json({
+        message: "Roster assignment updated",
+        roster: updated,
+      });
+    } catch (error) {
+      sendError(res, error);
     }
-
-    const allowedShifts = [
-      "Morning",
-      "Evening",
-      "Night",
-      "Weekly Off",
-      "Public Holiday",
-      "Leave",
-    ];
-
-    if (shift && !allowedShifts.includes(shift)) {
-      return res.status(400).json({ message: "Invalid shift" });
-    }
-
-    if (shift) assignment.shift = shift;
-    if (brand !== undefined) assignment.brand = brand;
-    if (process !== undefined) assignment.process = process;
-    if (notes !== undefined) assignment.notes = notes;
-
-    assignment.manuallyEdited = true;
-
-    await roster.save();
-
-    const updated = await Roster.findById(roster._id)
-      .populate("assignments.employee");
-
-    res.json({
-      message: "Roster assignment updated",
-      roster: updated,
-    });
-  } catch (error) {
-    sendError(res, error);
   }
-});
-
+);
 
 app.get("/api/rosters/backup-suggestions", async (req, res) => {
   try {
@@ -747,19 +777,32 @@ app.get("/api/rosters/backup-suggestions", async (req, res) => {
       availability: "Available",
     });
 
-    const leaves = await Leave.find({
-      status: "Approved",
-      startDate: { $lte: targetDate },
-      endDate: { $gte: targetDate },
-    });
+    const leaves = await Leave.find({ status: "Approved" });
+    const holidays = await Holiday.find();
 
-    const suggestions = employees.filter((emp) => {
-      const eligible = isEligible(emp, { brand, process });
-      const weeklyOff = employeeWeeklyOffs(emp).includes(dayName);
-      const onLeave = isOnLeave(emp, targetDate, leaves);
+    const dayHolidays = holidays.filter(
+      (holiday) => dateKey(holiday.date) === date
+    );
 
-      return eligible && !weeklyOff && !onLeave;
-    });
+    const holidayApplies = dayHolidays.some((holiday) =>
+      isHolidayFor(holiday, brand, process)
+    );
+
+    const suggestions = holidayApplies
+      ? []
+      : employees.filter((emp) => {
+          const eligible = isEligible(emp, { brand, process });
+          const weeklyOff = employeeWeeklyOffs(emp).includes(dayName);
+          const onLeave = isOnLeave(emp, targetDate, leaves);
+          const employeeHoliday = isEmployeeHoliday(emp, dayHolidays);
+
+          return (
+            eligible &&
+            !weeklyOff &&
+            !onLeave &&
+            !employeeHoliday
+          );
+        });
 
     res.json({
       date,
@@ -771,8 +814,6 @@ app.get("/api/rosters/backup-suggestions", async (req, res) => {
     sendError(res, error, 500);
   }
 });
-
-
 
 app.post("/api/rosters/revalidate", async (req, res) => {
   try {
@@ -801,8 +842,6 @@ app.post("/api/rosters/revalidate", async (req, res) => {
     sendError(res, error, 500);
   }
 });
-
-
 
 const PORT = process.env.PORT || 5000;
 
