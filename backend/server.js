@@ -439,8 +439,12 @@ app.delete("/api/roster-rules/:id", async (req, res) => {
   }
 });
 
+
 async function buildRoster(month, year) {
-  const employees = await Employee.find({ status: "Active" });
+  const employees = await Employee.find({ status: "Active" }).sort({
+    name: 1,
+  });
+
   const leaves = await Leave.find({ status: "Approved" });
   const holidays = await Holiday.find();
   const rules = await RosterRule.find({ status: "Active" });
@@ -456,6 +460,10 @@ async function buildRoster(month, year) {
 
   const assignedByDate = new Map();
   const usageCount = new Map();
+
+  const employeePosition = new Map(
+    employees.map((emp, index) => [emp._id.toString(), index])
+  );
 
   const addAssignment = (
     emp,
@@ -481,10 +489,9 @@ async function buildRoster(month, year) {
 
     assignedByDate.set(key, true);
 
-    usageCount.set(
-      emp._id.toString(),
-      (usageCount.get(emp._id.toString()) || 0) + 1
-    );
+    const empId = emp._id.toString();
+
+    usageCount.set(empId, (usageCount.get(empId) || 0) + 1);
 
     return true;
   };
@@ -499,14 +506,16 @@ async function buildRoster(month, year) {
     );
 
     const unavailable = new Set();
-    let shiftCounter = 0;
 
+    // 1. Leave, Public Holiday and Weekly Off
     for (const emp of employees) {
+      const empId = emp._id.toString();
+
       const empBrand = employeeBrands(emp)[0] || "";
       const empProcess = employeeProcesses(emp)[0] || "";
 
       if (isOnLeave(emp, date, leaves)) {
-        unavailable.add(emp._id.toString());
+        unavailable.add(empId);
 
         addAssignment(
           emp,
@@ -517,7 +526,7 @@ async function buildRoster(month, year) {
           "Approved leave"
         );
       } else if (isEmployeeHoliday(emp, dayHolidays)) {
-        unavailable.add(emp._id.toString());
+        unavailable.add(empId);
 
         const names = dayHolidays
           .map((holiday) => holiday.name || holiday.title || "")
@@ -533,7 +542,7 @@ async function buildRoster(month, year) {
           names ? `Public holiday: ${names}` : "Public holiday"
         );
       } else if (employeeWeeklyOffs(emp).includes(dayName)) {
-        unavailable.add(emp._id.toString());
+        unavailable.add(empId);
 
         addAssignment(
           emp,
@@ -546,6 +555,7 @@ async function buildRoster(month, year) {
       }
     }
 
+    // 2. Allocate employees according to roster rules
     for (const rule of rules) {
       const holidayApplies = dayHolidays.some((holiday) =>
         isHolidayFor(holiday, rule.brand, rule.process)
@@ -554,7 +564,8 @@ async function buildRoster(month, year) {
       const isSunday = dayName === "Sunday";
 
       const shouldClose =
-        (rule.holidayPolicy === "ExcludePublicHolidays" && holidayApplies) ||
+        (rule.holidayPolicy === "ExcludePublicHolidays" &&
+          holidayApplies) ||
         (rule.holidayPolicy === "ExcludeSundaysAndHolidays" &&
           (isSunday || holidayApplies)) ||
         !rule.operatingDays.includes(dayName);
@@ -564,14 +575,24 @@ async function buildRoster(month, year) {
       const eligible = employees
         .filter((emp) => isEligible(emp, rule))
         .filter((emp) => !unavailable.has(emp._id.toString()))
-        .filter((emp) => !assignedByDate.has(`${key}_${emp._id}`))
-        .sort(
-          (a, b) =>
+        .filter(
+          (emp) => !assignedByDate.has(`${key}_${emp._id}`)
+        )
+        .sort((a, b) => {
+          const usageDifference =
             (usageCount.get(a._id.toString()) || 0) -
-            (usageCount.get(b._id.toString()) || 0)
-        );
+            (usageCount.get(b._id.toString()) || 0);
 
-      const allowedShifts = rule.shifts?.length ? rule.shifts : SHIFTS;
+          if (usageDifference !== 0) return usageDifference;
+
+          return (
+            employeePosition.get(a._id.toString()) -
+            employeePosition.get(b._id.toString())
+          );
+        });
+
+      const allowedShifts =
+        rule.shifts?.length > 0 ? rule.shifts : SHIFTS;
 
       let allocated = 0;
 
@@ -582,12 +603,16 @@ async function buildRoster(month, year) {
       ) {
         const emp = eligible[i];
 
-        const shift =
-          allowedShifts[(day + shiftCounter) % allowedShifts.length];
+        const position =
+          employeePosition.get(emp._id.toString()) || 0;
+
+        const shiftIndex =
+          (day - 1 + position) % allowedShifts.length;
+
+        const shift = allowedShifts[shiftIndex];
 
         if (addAssignment(emp, date, shift, rule.brand, rule.process)) {
           allocated++;
-          shiftCounter++;
         }
       }
 
@@ -603,30 +628,34 @@ async function buildRoster(month, year) {
       }
     }
 
+    // 3. Allocate remaining active employees
     for (const emp of employees) {
       const empId = emp._id.toString();
 
       if (unavailable.has(empId)) continue;
+
       if (assignedByDate.has(`${key}_${emp._id}`)) continue;
 
-      const preferences = emp.shiftPreferences?.length
-        ? emp.shiftPreferences
-        : SHIFTS;
+      const preferences =
+        emp.shiftPreferences?.length > 0
+          ? emp.shiftPreferences
+          : SHIFTS;
 
-      const shift = preferences[(day + shiftCounter) % preferences.length];
+      const position = employeePosition.get(empId) || 0;
 
-      if (
-        addAssignment(
-          emp,
-          date,
-          shift,
-          employeeBrands(emp)[0] || "",
-          employeeProcesses(emp)[0] || "",
-          "General allocation"
-        )
-      ) {
-        shiftCounter++;
-      }
+      const shiftIndex =
+        (day - 1 + position) % preferences.length;
+
+      const shift = preferences[shiftIndex];
+
+      addAssignment(
+        emp,
+        date,
+        shift,
+        employeeBrands(emp)[0] || "",
+        employeeProcesses(emp)[0] || "",
+        "General allocation"
+      );
     }
   }
 
@@ -638,6 +667,7 @@ async function buildRoster(month, year) {
       : "Generated",
   };
 }
+
 
 app.post("/api/rosters/generate", async (req, res) => {
   try {
