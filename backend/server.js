@@ -175,6 +175,31 @@ app.delete("/api/employees/:id", async (req, res) => {
 });
 
 
+app.post("/api/employees/set-default-weekly-off", async (req, res) => {
+  try {
+    const result = await Employee.updateMany(
+      {
+        status: "Active",
+        $or: [
+          { weeklyOffs: { $exists: false } },
+          { weeklyOffs: { $size: 0 } },
+        ],
+      },
+      {
+        $set: { weeklyOffs: ["Sunday"] },
+      }
+    );
+
+    res.json({
+      message: "Sunday weekly off configured successfully",
+      employeesUpdated: result.modifiedCount,
+    });
+  } catch (error) {
+    sendError(res, error, 500);
+  }
+});
+
+
 
 app.post("/api/teams", async (req, res) => {
   try {
